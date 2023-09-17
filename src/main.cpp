@@ -99,7 +99,6 @@ int main() {
         std::vector<cl_device_id> devices(devicesCount);
         OCL_SAFE_CALL(clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, devicesCount, devices.data(), nullptr));
 
-//        for (int deviceIndex = 0; deviceIndex < devicesCount; ++deviceIndex) {
         for (int deviceIndex = 0; deviceIndex < devices.size(); ++deviceIndex) {
             // TODO 2.2
             // Запросите и напечатайте в консоль:
