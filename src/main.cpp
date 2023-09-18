@@ -70,7 +70,7 @@ private:
     cl_device_id device;
 
 public:
-    Context(cl_device_id dev)
+    explicit Context(cl_device_id dev)
         : device(dev)
     {
         cl_int err;
@@ -90,7 +90,7 @@ public:
     ~Context() {
         cl_int err = clReleaseContext(ctx);
         if (CL_SUCCESS != err)
-            throw std::runtime_error("Cannot release CL Context with error: " + std::to_string(err));
+            std::cerr << "Cannot release CL Context with error: " + std::to_string(err) << std::endl;
     }
 };
 
@@ -99,7 +99,7 @@ private:
     cl_command_queue queue;
 
 public:
-    CommandQueue(const Context& ctx) {
+    explicit CommandQueue(const Context& ctx) {
         cl_int err;
         queue = clCreateCommandQueue(ctx.getClContext(), ctx.getDevice(), 0, &err);
         if (CL_SUCCESS != err)
@@ -113,13 +113,13 @@ public:
     ~CommandQueue() {
         cl_int err = clReleaseCommandQueue(queue);
         if (CL_SUCCESS != err)
-            throw std::runtime_error("Cannot release CL Command Queue with error: " + std::to_string(err));
+            std::cerr << "Cannot release CL Command Queue with error: " + std::to_string(err) << std::endl;
     }
 };
 
 class Buffer {
 private:
-    cl_mem mem;
+    cl_mem mem = nullptr;
 
 public:
     Buffer(const Context& ctx, cl_mem_flags flags, size_t size, void* host_ptr) {
@@ -133,18 +133,18 @@ public:
     Buffer(const Context& ctx, cl_mem_flags flags, const std::vector<T>& data) : Buffer(ctx, flags, sizeof(T) * data.size(), (void*)data.data())
     {}
 
-    cl_mem getClMem() const {
+    [[nodiscard]] cl_mem getClMem() const {
         return mem;
     }
 
-    const cl_mem* getClMemPtr() const {
+    [[nodiscard]] const cl_mem* getClMemPtr() const {
         return &mem;
     }
 
     ~Buffer() {
         cl_int err = clReleaseMemObject(mem);
         if (CL_SUCCESS != err)
-            throw std::runtime_error("Cannot release CL Buffer with error: " + std::to_string(err));
+            std::cerr << "Cannot release CL Buffer with error: " + std::to_string(err) << std::endl;
     }
 };
 
@@ -162,14 +162,22 @@ public:
             throw std::runtime_error("Cannot create CL program with error: " + std::to_string(err));
     }
 
-    cl_program getClProgram() const { return prog; }
+    [[nodiscard]] cl_program getClProgram() const { return prog; }
 
     [[nodiscard]] std::string build(const std::string& options = "") const {
         cl_int err = clBuildProgram(prog, 0, nullptr, options.data(), nullptr, nullptr);
         auto log = OCL_SAFE_CALL_ARRAY(std::string, size_t, clGetProgramBuildInfo, prog, ctx->getDevice(), CL_PROGRAM_BUILD_LOG);
 
-        if (CL_SUCCESS != err)
+        if (CL_SUCCESS != err) {
+#ifdef DEBUG
+            if (log.size() > 1) {
+                std::cout << "Log:" << std::endl;
+                std::cout << log.data() << std::endl;
+            }
+#endif
             throw std::runtime_error("Cannot build CL program with error: " + std::to_string(err));
+        }
+
 //        cl_build_status status = OCL_SAFE_CALL(cl_build_status, clGetProgramBuildInfo, prog, ctx->getDevice(), CL_PROGRAM_BUILD_STATUS);
         return log;
     }
@@ -177,7 +185,7 @@ public:
     ~Program() {
         cl_int err = clReleaseProgram(prog);
         if (CL_SUCCESS != err)
-            throw std::runtime_error("Cannot release CL program with error: " + std::to_string(err));
+            std::cerr << "Cannot release CL program with error: " + std::to_string(err) << std::endl;
     }
 };
 
@@ -193,12 +201,12 @@ public:
             throw std::runtime_error("Cannot create CL kernel with error: " + std::to_string(err));
     }
 
-    cl_kernel getClKernel() const { return kernel; }
+    [[nodiscard]] cl_kernel getClKernel() const { return kernel; }
 
     ~Kernel() {
         cl_int err = clReleaseKernel(kernel);
         if (CL_SUCCESS != err)
-            throw std::runtime_error("Cannot release CL kernel with error: " + std::to_string(err));
+            std::cerr <<"Cannot release CL kernel with error: " + std::to_string(err) << std::endl;
     }
 };
 
@@ -212,7 +220,7 @@ int main() {
     auto platforms = OCL_SAFE_CALL_ARRAY(std::vector<cl_platform_id>, cl_uint, clGetPlatformIDs);
 
     cl_platform_id platform = nullptr;
-    const std::string pltName = "Intel";
+    const std::string pltName = "NVIDIA";
 
     for (cl_platform_id plt : platforms) {
         auto platformName = OCL_SAFE_CALL_ARRAY(std::string, size_t, clGetPlatformInfo, plt, CL_PLATFORM_NAME);
@@ -225,6 +233,17 @@ int main() {
     cl_device_id deviceId = devices.front();
     auto deviceName = OCL_SAFE_CALL_ARRAY(std::string, size_t, clGetDeviceInfo, deviceId, CL_DEVICE_NAME);
     std::cout << "Device: " << deviceName.data() << std::endl;
+
+    auto deviceType = OCL_SAFE_CALL(cl_device_type, clGetDeviceInfo, deviceId, CL_DEVICE_TYPE);
+    std::cout << "Device type: ";
+    if (deviceType & CL_DEVICE_TYPE_CPU)         std::cout << "CPU ";
+    if (deviceType & CL_DEVICE_TYPE_GPU)         std::cout << "GPU ";
+    if (deviceType & CL_DEVICE_TYPE_ACCELERATOR) std::cout << "ACCELERATOR ";
+    if (deviceType & CL_DEVICE_TYPE_DEFAULT)     std::cout << "DEFAULT TYPE ";
+    if (!(deviceType & (CL_DEVICE_TYPE_CPU | CL_DEVICE_TYPE_GPU | CL_DEVICE_TYPE_ACCELERATOR | CL_DEVICE_TYPE_DEFAULT))) {
+        std::cout << "SOMETHING STRANGE";
+    }
+    std::cout << std::endl;
 
     // TODO 2 Создайте контекст с выбранным устройством
     // См. документацию https://www.khronos.org/registry/OpenCL/sdk/1.2/docs/man/xhtml/ -> OpenCL Runtime -> Contexts -> clCreateContext
@@ -258,7 +277,7 @@ int main() {
     // или же через метод Buffer Objects -> clEnqueueWriteBuffer
     // И хорошо бы сразу добавить в конце clReleaseMemObject (аналогично, все дальнейшие ресурсы вроде OpenCL под-программы, кернела и т.п. тоже нужно освобождать)
 
-    cl_device_type deviceType = OCL_SAFE_CALL(cl_device_type, clGetDeviceInfo, deviceId, CL_DEVICE_TYPE);
+
     cl_mem_flags flags = (deviceType == CL_DEVICE_TYPE_CPU) ? CL_MEM_USE_HOST_PTR : CL_MEM_COPY_HOST_PTR;
     Buffer a(ctx, CL_MEM_READ_ONLY | flags, as);
     Buffer b(ctx, CL_MEM_READ_ONLY | flags, bs);
@@ -290,13 +309,6 @@ int main() {
     // А также напечатайте лог компиляции (он будет очень полезен, если в кернеле есть синтаксические ошибки - т.е. когда clBuildProgram вернет CL_BUILD_PROGRAM_FAILURE)
     // Обратите внимание, что при компиляции на процессоре через Intel OpenCL драйвер - в логе указывается, какой ширины векторизацию получилось выполнить для кернела
     // см. clGetProgramBuildInfo
-#ifdef DEBUG
-        if (log.size() > 1) {
-            std::cout << "Log:" << std::endl;
-            std::cout << log.data() << std::endl;
-        }
-#endif
-
 
     // TODO 9 Создайте OpenCL-kernel в созданной подпрограмме (в одной подпрограмме может быть несколько кернелов, но в данном случае кернел один)
     // см. подходящую функцию в Runtime APIs -> Program Objects -> Kernel Objects
