@@ -109,13 +109,13 @@ int main(int argc, char **argv)
         gpu::Context context;
         context.init(device.device_id_opencl);
         context.activate();
-        unsigned int workGroupSize = 128;
+        unsigned int workGroupSize = 256;
         unsigned int global_work_size = (n + workGroupSize - 1) / workGroupSize * workGroupSize;
         gpu::WorkSize ws(workGroupSize, global_work_size);
 
         call_sum("sum_baseline", ws, as, benchmarkingIters);
-        call_sum("sum_arr_non_coalesced", ws, as, benchmarkingIters);
-        call_sum("sum_arr_coalesced", ws, as, benchmarkingIters);
+        call_sum("sum_arr_non_coalesced", gpu::WorkSize(workGroupSize, global_work_size / workGroupSize), as, benchmarkingIters);
+        call_sum("sum_arr_coalesced", gpu::WorkSize(workGroupSize, global_work_size / workGroupSize), as, benchmarkingIters);
         call_sum("sum_local_mem_main_thread", ws, as, benchmarkingIters);
         call_sum("sum_tree", ws, as, benchmarkingIters);
     }

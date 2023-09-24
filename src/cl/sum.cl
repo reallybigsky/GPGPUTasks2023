@@ -4,8 +4,8 @@
 
 #line 6
 
-#define VALUES_PER_WORKITEM 32
-#define WORKGROUP_SIZE 128
+#define VALUES_PER_WORKITEM 256
+#define WORKGROUP_SIZE 256
 
 __kernel void sum_baseline(__global const unsigned int* arr,
                            __global unsigned int* sum,
@@ -26,8 +26,8 @@ __kernel void sum_arr_non_coalesced(__global const unsigned int* arr,
     const unsigned int gid = get_global_id(0);
 
     int res = 0;
-    for (int i = 0; i < VALUES_PER_WORKITEM; ++i) {
-        int idx = gid * VALUES_PER_WORKITEM + i;
+    for (unsigned long long i = 0; i < VALUES_PER_WORKITEM; ++i) {
+        unsigned long long idx = gid * VALUES_PER_WORKITEM + i;
         if (idx < n) {
             res += arr[idx];
         }
@@ -45,8 +45,8 @@ __kernel void sum_arr_coalesced(__global const unsigned int* arr,
     const unsigned int grs = get_local_size(0);
 
     int res = 0;
-    for (int i = 0; i < VALUES_PER_WORKITEM; ++i) {
-        int idx = wid * grs * VALUES_PER_WORKITEM + i * grs + lid;
+    for (unsigned long long i = 0; i < VALUES_PER_WORKITEM; ++i) {
+        unsigned long long idx = wid * grs * VALUES_PER_WORKITEM + i * grs + lid;
         if (idx < n) {
             res += arr[idx];
         }
