@@ -11,6 +11,9 @@
 
 #define half float
 
+float sqrt(float arg);
+float log(float arg);
+
 struct float2 { float x;          };
 struct float3 { float x, y, z;    };
 struct float4 { float x, y, z, w; };
