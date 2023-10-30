@@ -8,6 +8,17 @@
 #define MASK_WIDTH 4
 #define CNT (1 << MASK_WIDTH)
 
+__kernel void fill_zeros(__global uint32_t* as,
+                         const uint32_t N)
+{
+    const uint32_t gid = get_global_id(0);
+
+    if (gid >= N)
+        return;
+
+    as[gid] = 0;
+}
+
 __kernel void local_stable_merge_sort(__global const uint32_t* as,
                                 __global uint32_t* bs,
                                 const uint32_t mask,

@@ -56,6 +56,9 @@ int main(int argc, char **argv) {
     as_gpu.resizeN(n);
 
     {
+        ocl::Kernel fill_zeros(radix_kernel, radix_kernel_length, "fill_zeros");
+        fill_zeros.compile();
+
         ocl::Kernel local_stable_merge_sort(radix_kernel, radix_kernel_length, "local_stable_merge_sort");
         local_stable_merge_sort.compile();
 
@@ -88,7 +91,7 @@ int main(int argc, char **argv) {
 
         const uint32_t matrix_size = workGroupCnt * cnt;
 
-        const uint32_t matrix_wh_min = workGroupCnt < cnt ? workGroupCnt : cnt;
+        const uint32_t matrix_wh_min = std::min(workGroupCnt < cnt ? workGroupCnt : cnt, workGroupSize);
 
         gpu::WorkSize ws_matrix(matrix_wh_min, matrix_size);
         gpu::WorkSize ws_transpose(matrix_wh_min, matrix_wh_min, cnt, workGroupCnt);
@@ -116,10 +119,10 @@ int main(int argc, char **argv) {
             t.restart();// Запускаем секундомер после прогрузки данных, чтобы замерять время работы кернела, а не трансфер данных
 
             for (uint32_t step = 0; step < sizeof(uint32_t) * 8 / K_bits; ++step) {
-                local_cnt_matrix.writeN(zeroes.data(), matrix_size);
-                local_cnt_matrix_copy.writeN(zeroes.data(), matrix_size);
-                local_prefix_sums.writeN(zeroes.data(), matrix_size);
-                global_prefix_sums.writeN(zeroes.data(), matrix_size);
+                fill_zeros.exec(ws, local_cnt_matrix, matrix_size);
+                fill_zeros.exec(ws, local_cnt_matrix_copy, matrix_size);
+                fill_zeros.exec(ws, local_prefix_sums, matrix_size);
+                fill_zeros.exec(ws, global_prefix_sums, matrix_size);
 
                 // 1. Сортируем стабильной сортировкой каждую воркгруппу локально
                 for (uint32_t M = 1; M < workGroupSize; M *= 2) {
@@ -151,7 +154,6 @@ int main(int argc, char **argv) {
                     global_prefix_sums.swap(local_cnt_matrix_copy);
                 }
 
-
                 // 5.1 Сдвигаем префиксы вправо для удобства индексирования (матрица маленькая, так что будет быстро)
                 shift_right.exec(ws_matrix, global_prefix_sums, local_cnt_matrix_copy, matrix_size);
                 global_prefix_sums.swap(local_cnt_matrix_copy);
@@ -162,9 +164,8 @@ int main(int argc, char **argv) {
 
                 // 7. Сдвигаем маску влево
                 bit_mask = (bit_mask << K_bits);
-
-                t.nextLap();
             }
+            t.nextLap();
         }
         std::cout << "GPU: " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
         std::cout << "GPU: " << (n / 1000 / 1000) / t.lapAvg() << " millions/s" << std::endl;
