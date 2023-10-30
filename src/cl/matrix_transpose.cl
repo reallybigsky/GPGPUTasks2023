@@ -25,13 +25,16 @@ __kernel void matrix_transpose(__global const float* from,
 
     __local float tile[TILE_SIZE][TILE_SIZE * 2];
 
-    if (i < M && j < K) {
-        tile[local_j][local_i + local_j] = from[j * K + i];
+    if (i < K && j < M) {
+        tile[local_i][local_i + local_j] = from[j * K + i];
     }
 
     barrier(CLK_LOCAL_MEM_FENCE);
 
-    if (i < M && j < K) {
-        to[M * (ls_i * gr_i + local_j) + (ls_j * gr_j + local_i)] = tile[local_i][local_i + local_j];
+    const unsigned int ni = ls_j * gr_j + local_i;
+    const unsigned int nj = ls_i * gr_i + local_j;
+
+    if (ni < M && nj < K) {
+        to[M * nj + ni] = tile[local_j][local_i + local_j];
     }
 }
