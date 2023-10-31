@@ -7,6 +7,8 @@
 #define uint32_t unsigned int
 #define MASK_WIDTH 4
 #define CNT (1 << MASK_WIDTH)
+#define TILE_SIZE 16
+#define WG_SIZE 128
 
 __kernel void fill_zeros(__global uint32_t* as,
                          const uint32_t N)
@@ -68,10 +70,7 @@ __kernel void local_counts(__global const uint32_t* as,
 {
     const uint32_t gid = get_global_id(0);
     const uint32_t lid = get_local_id(0);
-
     const uint32_t group_id = get_group_id(0);
-
-    const uint32_t curr_masked_shifted = (as[gid] & mask) >> mask_offset;
 
     __local uint32_t local_mem[CNT];
     if (lid < CNT) {
@@ -80,12 +79,39 @@ __kernel void local_counts(__global const uint32_t* as,
 
     barrier(CLK_LOCAL_MEM_FENCE);
 
-    atomic_add(&local_mem[curr_masked_shifted], 1);
+    atomic_add(&local_mem[(as[gid] & mask) >> mask_offset], 1);
 
     barrier(CLK_LOCAL_MEM_FENCE);
 
     if (lid < CNT) {
         matrix_local_cnt[group_id * CNT + lid] = local_mem[lid];
+    }
+}
+
+__kernel void local_counts_transposed(__global const uint32_t* as,
+                           const uint32_t N,
+                           __global uint32_t* bs,
+                           const uint32_t mask,
+                           const uint32_t mask_offset)
+{
+    const uint32_t gid = get_global_id(0);
+    const uint32_t lid = get_local_id(0);
+    const uint32_t group_id = get_group_id(0);
+    const uint32_t groups_cnt = get_num_groups(0);
+
+    __local uint32_t local_mem[CNT];
+    if (lid < CNT) {
+        local_mem[lid] = 0;
+    }
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    atomic_add(&local_mem[(as[gid] & mask) >> mask_offset], 1);
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    if (lid < CNT) {
+        bs[groups_cnt * lid + group_id] = local_mem[lid];
     }
 }
 
@@ -115,8 +141,6 @@ __kernel void shift_right(__global const uint32_t* as,
     if (gid == 0)
         bs[gid] = 0;
 }
-
-#define TILE_SIZE 16
 
 __kernel void matrix_transpose(__global const uint32_t* from,
                                __global uint32_t* to,
@@ -162,17 +186,49 @@ __kernel void radix(__global const uint32_t* as,
 {
     const uint32_t gid = get_global_id(0);
     const uint32_t lid = get_local_id(0);
-
     const uint32_t group_id = get_group_id(0);
 
     if (gid >= N)
         return;
 
-    const uint32_t curr = as[gid];
-    const uint32_t curr_masked_offset = (curr & mask) >> mask_offset;
-
+    const uint32_t curr_masked_offset = (as[gid] & mask) >> mask_offset;
     const uint32_t curr_offset = local_prefix_sums[group_id * CNT + curr_masked_offset] - local_prefix_sums[group_id * CNT];
     const uint32_t index = global_prefix_sums[wgCnt * curr_masked_offset + group_id] + lid - curr_offset;
 
     bs[index] = as[gid];
+}
+
+__kernel void radix_fast(__global const uint32_t* as,
+                    __global uint32_t* bs,
+                    const uint32_t N,
+                    __global const uint32_t* prefix_sums,
+                    const uint32_t wgCnt,
+                    const uint32_t mask,
+                    const uint32_t mask_offset)
+{
+    const uint32_t gid = get_global_id(0);
+    const uint32_t lid = get_local_id(0);
+    const uint32_t group_id = get_group_id(0);
+
+    __local uint32_t local_mem[WG_SIZE];
+
+    const uint32_t curr = (as[gid] & mask) >> mask_offset;
+
+    local_mem[lid] = curr;
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    if (gid >= N)
+        return;
+
+    uint32_t curr_offset_wg = 0;
+
+    const uint32_t wg_start = gid / WG_SIZE * WG_SIZE;
+    const uint32_t end = min(gid - wg_start, N - wg_start);
+
+    for (uint32_t i = 0; i < end; ++i) {
+        curr_offset_wg += local_mem[i] == curr;
+    }
+
+    bs[prefix_sums[wgCnt * curr + group_id] + curr_offset_wg] = as[gid];
 }
